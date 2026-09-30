@@ -5,7 +5,7 @@
  * 把原来终端里的三步（粘贴链接 → 选清晰度 → 下载）搬到浏览器里。
  *
  *   npm run build        # 构建（含网页版）
- *   npm run web          # 启动：node dist/server.js
+ *   npm run web          # 启动：node dist/web/server.js
  *   PORT=3000 HOST=0.0.0.0 npm run web
  *
  * 默认监听 0.0.0.0，同一 Wi-Fi 下手机浏览器也能打开使用。
