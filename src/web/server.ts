@@ -11,7 +11,9 @@
  * 默认监听 0.0.0.0，同一 Wi-Fi 下手机浏览器也能打开使用。
  */
 import http from 'node:http'
+import {createReadStream} from 'node:fs'
 import {readFile, stat} from 'node:fs/promises'
+import {createHash, randomUUID, timingSafeEqual} from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import {buildChoices, download, ensureYtDlp, findFfmpeg, probe} from '../lib/ytdlp.js'
@@ -20,8 +22,93 @@ import {formatBytes, formatEta, formatSpeed} from '../lib/format.js'
 const PORT = Number(process.env.PORT ?? 3000)
 const HOST = process.env.HOST ?? '0.0.0.0'
 const OUT_DIR = path.join(os.homedir(), 'Downloads')
+// 访问密码：设置 YOINKS_PASSWORD 环境变量即开启（部署到公网时务必设置）
+const PASSWORD = process.env.YOINKS_PASSWORD ?? ''
 // 开发时（tsx）是 src/web/public，构建后（dist）是 dist/public，相对位置一致
 const PUBLIC_DIR = new URL('./public/', import.meta.url)
+
+// 登录会话：内存 Set，重启后失效
+const sessions = new Set<string>()
+// 文件下载令牌：token -> 文件路径，1 小时有效
+const fileTokens = new Map<string, {filepath: string; expires: number}>()
+
+function getSessionId(req: http.IncomingMessage): string | undefined {
+  const cookie = req.headers.cookie ?? ''
+  const match = /(?:^|;\s*)yoinks_session=([^;]+)/.exec(cookie)
+  return match?.[1]
+}
+
+function authed(req: http.IncomingMessage): boolean {
+  if (!PASSWORD) return true
+  const sid = getSessionId(req)
+  return !!sid && sessions.has(sid)
+}
+
+function hashPassword(pw: string): Buffer {
+  return createHash('sha256').update(pw, 'utf8').digest()
+}
+
+async function handleLogin(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  let body: unknown
+  try {
+    body = await readJsonBody(req)
+  } catch (error) {
+    json(res, 400, {ok: false, message: (error as Error).message})
+    return
+  }
+  const password = (body as {password?: unknown}).password
+  if (!PASSWORD) {
+    json(res, 200, {ok: true})
+    return
+  }
+  if (typeof password !== 'string' || !timingSafeEqual(hashPassword(password), hashPassword(PASSWORD))) {
+    // 故意延迟一点，增加暴力破解成本
+    await new Promise(r => setTimeout(r, 800))
+    json(res, 401, {ok: false, message: '密码不对，再想想？'})
+    return
+  }
+  const sid = randomUUID()
+  sessions.add(sid)
+  res.writeHead(200, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Set-Cookie': `yoinks_session=${sid}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000`,
+  })
+  res.end(JSON.stringify({ok: true}))
+}
+
+function handleMe(req: http.IncomingMessage, res: http.ServerResponse): void {
+  json(res, 200, {ok: true, authRequired: !!PASSWORD, authed: authed(req)})
+}
+
+/** GET /api/file?id=<token> —— 把下载好的文件送到浏览器 */
+async function handleFile(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  if (!authed(req)) {
+    json(res, 401, {ok: false, message: '请先登录'})
+    return
+  }
+  const id = new URL(req.url ?? '/', 'http://localhost').searchParams.get('id') ?? ''
+  const entry = fileTokens.get(id)
+  if (!entry || entry.expires < Date.now()) {
+    fileTokens.delete(id)
+    json(res, 404, {ok: false, message: '文件链接已过期，请重新下载'})
+    return
+  }
+  try {
+    const st = await stat(entry.filepath)
+    if (!st.isFile()) throw new Error('not a file')
+    const ext = path.extname(entry.filepath).toLowerCase()
+    const type = ext === '.mp3' ? 'audio/mpeg' : ext === '.mp4' ? 'video/mp4' : 'application/octet-stream'
+    res.writeHead(200, {
+      'Content-Type': type,
+      'Content-Length': st.size,
+      // 中文文件名：用 RFC 5987 编码避免乱码
+      'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(entry.filepath))}`,
+    })
+    createReadStream(entry.filepath).pipe(res)
+  } catch {
+    json(res, 404, {ok: false, message: '找不到这个文件，可能已被删除'})
+  }
+}
 
 let ytdlpPromise: Promise<string> | undefined
 function getYtDlp(): Promise<string> {
@@ -193,7 +280,10 @@ async function handleDownload(req: http.IncomingMessage, res: http.ServerRespons
       },
       controller.signal,
     )
-    send({type: 'done', filepath, filename: path.basename(filepath)})
+    // 生成一次性文件下载令牌（1 小时有效），供 /api/file 使用
+    const fileToken = randomUUID()
+    fileTokens.set(fileToken, {filepath, expires: Date.now() + 3_600_000})
+    send({type: 'done', filepath, filename: path.basename(filepath), fileToken})
     res.end()
   } catch (error) {
     const message = (error as Error).message
@@ -207,6 +297,22 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && (await serveStatic(req, res))) return
     if (req.method === 'GET' && req.url === '/api/health') {
       json(res, 200, {ok: true})
+      return
+    }
+    if (req.method === 'POST' && req.url === '/api/login') {
+      await handleLogin(req, res)
+      return
+    }
+    if (req.method === 'GET' && req.url === '/api/me') {
+      handleMe(req, res)
+      return
+    }
+    if (req.method === 'GET' && req.url?.startsWith('/api/file')) {
+      await handleFile(req, res)
+      return
+    }
+    if (!authed(req)) {
+      json(res, 401, {ok: false, message: '请先登录'})
       return
     }
     if (req.method === 'POST' && req.url === '/api/probe') {
@@ -232,5 +338,7 @@ server.listen(PORT, HOST, async () => {
   console.log(`\nyoinks 网页版已启动`)
   console.log(`本机打开：http://localhost:${PORT}`)
   if (lan && HOST === '0.0.0.0') console.log(`手机打开（同一 Wi-Fi）：http://${lan}:${PORT}`)
-  console.log(`下载保存到：${OUT_DIR}\n`)
+  console.log(`下载保存到：${OUT_DIR}`)
+  console.log(PASSWORD ? `访问密码：已开启` : `访问密码：未设置（局域网/公网部署请设置 YOINKS_PASSWORD）`)
+  console.log('')
 })
