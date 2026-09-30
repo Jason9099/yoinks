@@ -52,6 +52,23 @@ click the theme control in the footer to cycle through `auto`, `light`, and
 
 <img src="assets/download-options.png" alt="yoinks format picker — resolutions with estimated file sizes, plus audio-only mp3" width="100%">
 
+## Web UI
+
+Prefer clicking over typing? yoinks ships a local web UI that reuses the same
+download engine — paste a link, pick a quality, watch the progress bar.
+
+```
+npm run build
+npm run web
+```
+
+Then open http://localhost:3000 — or, on the same Wi-Fi, open the LAN address
+printed in the terminal on your phone. The page is in Chinese and works well on
+mobile. Files are saved to `~/Downloads`, same as the terminal version.
+
+Set `PORT` / `HOST` env vars to change where it listens
+(e.g. `HOST=127.0.0.1 npm run web` to keep it on this machine only).
+
 ## How it works
 
 - Powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp). On first run,
