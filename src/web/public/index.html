@@ -171,6 +171,23 @@
 </head>
 <body>
 <div class="wrap">
+  <!-- 登录 -->
+  <div id="loginView" class="hidden" style="max-width:380px;margin:60px auto 0">
+    <header>
+      <div class="logo">Y</div>
+      <h1>yoinks</h1>
+      <p>这个站点设了访问密码</p>
+    </header>
+    <div class="card">
+      <div class="step-label"><b>🔒</b>请输入访问密码</div>
+      <div class="url-row">
+        <input type="password" id="passwordInput" placeholder="访问密码" autocomplete="off" style="flex:1;min-width:0;padding:13px 14px;font-size:16px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);outline:none">
+        <button class="btn-primary" id="loginBtn">进入</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="mainView" class="hidden">
   <header>
     <div class="logo">Y</div>
     <h1>yoinks</h1>
@@ -219,19 +236,68 @@
         <div class="check">✓</div>
         <div style="font-weight:700;font-size:17px">下载完成</div>
         <div class="path" id="donePath"></div>
+        <a id="fileDownloadBtn" href="#" style="text-decoration:none"><button class="btn-primary btn-block" style="margin-top:12px">下载文件到手机 / 电脑</button></a>
         <button class="btn-ghost" id="againBtn">再下一个</button>
       </div>
     </div>
   </div>
 
   <footer>文件保存到你电脑的「下载」文件夹 · 仅下载你有权保存的内容</footer>
+  </div><!-- /mainView -->
 </div>
 
 <script>
 const $ = id => document.getElementById(id);
 const urlInput = $('urlInput'), probeBtn = $('probeBtn');
 const step2 = $('step2'), step3 = $('step3'), errorBox = $('errorBox');
+const loginView = $('loginView'), mainView = $('mainView');
 let probeData = null, selectedIndex = 0, abortController = null;
+
+// ---- 登录状态 ----
+async function checkAuth() {
+  try {
+    const res = await fetch('/api/me');
+    const data = await res.json();
+    if (data.authRequired && !data.authed) {
+      loginView.classList.remove('hidden');
+      mainView.classList.add('hidden');
+    } else {
+      loginView.classList.add('hidden');
+      mainView.classList.remove('hidden');
+    }
+  } catch {
+    mainView.classList.remove('hidden');
+  }
+}
+function requireLogin() {
+  loginView.classList.remove('hidden');
+  mainView.classList.add('hidden');
+  $('passwordInput').focus();
+}
+$('loginBtn').addEventListener('click', doLogin);
+$('passwordInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+async function doLogin() {
+  const password = $('passwordInput').value;
+  const btn = $('loginBtn');
+  btn.disabled = true; btn.textContent = '验证中…';
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password}),
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.message || '登录失败');
+    loginView.classList.add('hidden');
+    mainView.classList.remove('hidden');
+    $('passwordInput').value = '';
+  } catch (e) {
+    showError(e.message || '登录失败');
+  } finally {
+    btn.disabled = false; btn.textContent = '进入';
+  }
+}
+checkAuth();
 
 function showError(msg) {
   errorBox.textContent = msg;
@@ -264,6 +330,7 @@ async function doProbe() {
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({url}),
     });
+    if (res.status === 401) { requireLogin(); return; }
     const data = await res.json();
     if (!data.ok) throw new Error(data.message || '解析失败');
     probeData = data;
@@ -340,6 +407,7 @@ async function startDownload() {
       }),
       signal: abortController.signal,
     });
+    if (res.status === 401) { requireLogin(); resetDownloadUI(); return; }
     if (!res.ok || !res.body) throw new Error('下载请求失败');
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -385,6 +453,13 @@ function handleEvent(ev) {
     $('downloadActive').classList.add('hidden');
     $('downloadDone').classList.remove('hidden');
     $('donePath').textContent = '已保存到：' + ev.filepath;
+    if (ev.fileToken) {
+      const a = $('fileDownloadBtn');
+      a.href = '/api/file?id=' + encodeURIComponent(ev.fileToken);
+      a.style.display = '';
+    } else {
+      $('fileDownloadBtn').style.display = 'none';
+    }
   } else if (ev.type === 'error') {
     showError(ev.message || '下载失败');
     resetDownloadUI();
