@@ -64,10 +64,28 @@ npm run web
 
 Then open http://localhost:3000 — or, on the same Wi-Fi, open the LAN address
 printed in the terminal on your phone. The page is in Chinese and works well on
-mobile. Files are saved to `~/Downloads`, same as the terminal version.
+mobile. Files are saved to `~/Downloads`, same as the terminal version, and a
+"download to this device" button lets remote browsers fetch the finished file.
 
 Set `PORT` / `HOST` env vars to change where it listens
 (e.g. `HOST=127.0.0.1 npm run web` to keep it on this machine only).
+
+### Access password
+
+Set the `YOINKS_PASSWORD` environment variable to require a password before
+anyone can use the page or the API. **Always set this when exposing the server
+beyond your own machine.**
+
+```
+YOINKS_PASSWORD=your-secret-password npm run web
+```
+
+### Docker
+
+```
+docker build -t yoinks-web .
+docker run -p 3000:3000 -e YOINKS_PASSWORD=your-secret-password yoinks-web
+```
 
 ## How it works
 
