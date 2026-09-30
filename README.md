@@ -72,12 +72,15 @@ Set `PORT` / `HOST` env vars to change where it listens
 
 ### Access password
 
-Set the `YOINKS_PASSWORD` environment variable to require a password before
-anyone can use the page or the API. **Always set this when exposing the server
-beyond your own machine.**
+Set the `YOINKS_PASSWORD` environment variable to require a username +
+password login before anyone can use the page or the API. The username
+defaults to `admin` and can be changed with `YOINKS_USER`.
+**Always set this when exposing the server beyond your own machine.**
+Leave `YOINKS_PASSWORD` unset to skip login entirely (useful behind your
+own NAS reverse proxy or other front-door auth).
 
 ```
-YOINKS_PASSWORD=your-secret-password npm run web
+YOINKS_USER=admin YOINKS_PASSWORD=your-secret-password npm run web
 ```
 
 ### Docker
