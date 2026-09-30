@@ -176,13 +176,14 @@
     <header>
       <div class="logo">Y</div>
       <h1>yoinks</h1>
-      <p>这个站点设了访问密码</p>
+      <p>这个站点需要登录</p>
     </header>
     <div class="card">
-      <div class="step-label"><b>🔒</b>请输入访问密码</div>
-      <div class="url-row">
-        <input type="password" id="passwordInput" placeholder="访问密码" autocomplete="off" style="flex:1;min-width:0;padding:13px 14px;font-size:16px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);outline:none">
-        <button class="btn-primary" id="loginBtn">进入</button>
+      <div class="step-label"><b>🔒</b>请输入用户名和密码</div>
+      <div class="url-row" style="flex-direction:column;align-items:stretch">
+        <input type="text" id="usernameInput" placeholder="用户名" autocomplete="username" style="padding:13px 14px;font-size:16px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);outline:none">
+        <input type="password" id="passwordInput" placeholder="密码" autocomplete="current-password" style="padding:13px 14px;font-size:16px;border:1.5px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);outline:none">
+        <button class="btn-primary btn-block" id="loginBtn">进入</button>
       </div>
     </div>
   </div>
@@ -275,8 +276,10 @@ function requireLogin() {
   $('passwordInput').focus();
 }
 $('loginBtn').addEventListener('click', doLogin);
+$('usernameInput').addEventListener('keydown', e => { if (e.key === 'Enter') $('passwordInput').focus(); });
 $('passwordInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 async function doLogin() {
+  const username = $('usernameInput').value.trim();
   const password = $('passwordInput').value;
   const btn = $('loginBtn');
   btn.disabled = true; btn.textContent = '验证中…';
@@ -284,7 +287,7 @@ async function doLogin() {
     const res = await fetch('/api/login', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({password}),
+      body: JSON.stringify({username, password}),
     });
     const data = await res.json();
     if (!data.ok) throw new Error(data.message || '登录失败');
