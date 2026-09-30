@@ -22,7 +22,9 @@ import {formatBytes, formatEta, formatSpeed} from '../lib/format.js'
 const PORT = Number(process.env.PORT ?? 3000)
 const HOST = process.env.HOST ?? '0.0.0.0'
 const OUT_DIR = path.join(os.homedir(), 'Downloads')
-// 访问密码：设置 YOINKS_PASSWORD 环境变量即开启（部署到公网时务必设置）
+// 访问账号：设置 YOINKS_PASSWORD 环境变量即开启登录（部署到公网时务必设置）
+// 用户名可用 YOINKS_USER 覆盖，默认 admin；不设密码则直接进入（适合 NAS 等已有前置验证的环境）
+const USERNAME = process.env.YOINKS_USER ?? 'admin'
 const PASSWORD = process.env.YOINKS_PASSWORD ?? ''
 // 开发时（tsx）是 src/web/public，构建后（dist）是 dist/public，相对位置一致
 const PUBLIC_DIR = new URL('./public/', import.meta.url)
@@ -48,6 +50,12 @@ function hashPassword(pw: string): Buffer {
   return createHash('sha256').update(pw, 'utf8').digest()
 }
 
+function safeEqual(a: string, b: string): boolean {
+  const ha = hashPassword(a)
+  const hb = hashPassword(b)
+  return ha.length === hb.length && timingSafeEqual(ha, hb)
+}
+
 async function handleLogin(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   let body: unknown
   try {
@@ -56,15 +64,15 @@ async function handleLogin(req: http.IncomingMessage, res: http.ServerResponse):
     json(res, 400, {ok: false, message: (error as Error).message})
     return
   }
-  const password = (body as {password?: unknown}).password
+  const {username, password} = body as {username?: unknown; password?: unknown}
   if (!PASSWORD) {
     json(res, 200, {ok: true})
     return
   }
-  if (typeof password !== 'string' || !timingSafeEqual(hashPassword(password), hashPassword(PASSWORD))) {
+  if (typeof username !== 'string' || typeof password !== 'string' || !safeEqual(username, USERNAME) || !safeEqual(password, PASSWORD)) {
     // 故意延迟一点，增加暴力破解成本
     await new Promise(r => setTimeout(r, 800))
-    json(res, 401, {ok: false, message: '密码不对，再想想？'})
+    json(res, 401, {ok: false, message: '用户名或密码不对，再想想？'})
     return
   }
   const sid = randomUUID()
@@ -339,6 +347,6 @@ server.listen(PORT, HOST, async () => {
   console.log(`本机打开：http://localhost:${PORT}`)
   if (lan && HOST === '0.0.0.0') console.log(`手机打开（同一 Wi-Fi）：http://${lan}:${PORT}`)
   console.log(`下载保存到：${OUT_DIR}`)
-  console.log(PASSWORD ? `访问密码：已开启` : `访问密码：未设置（局域网/公网部署请设置 YOINKS_PASSWORD）`)
+  console.log(PASSWORD ? `登录保护：已开启（用户名 ${USERNAME}）` : `登录保护：未设置（局域网/公网部署请设置 YOINKS_PASSWORD）`)
   console.log('')
 })
